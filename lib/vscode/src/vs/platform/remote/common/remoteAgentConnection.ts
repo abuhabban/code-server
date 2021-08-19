@@ -25,7 +25,10 @@ export const enum ConnectionType {
 	Tunnel = 3,
 }
 
-function connectionTypeToString(connectionType: ConnectionType): string {
+/**
+ * @coder exported for server side use.
+ */
+export function connectionTypeToString(connectionType: ConnectionType): string {
 	switch (connectionType) {
 		case ConnectionType.Management:
 			return 'Management';
@@ -63,7 +66,17 @@ export interface OKMessage {
 	type: 'ok';
 }
 
-export type HandshakeMessage = AuthRequest | SignRequest | ConnectionTypeRequest | ErrorMessage | OKMessage;
+/**
+ * Expected response from `CodeServer` connection.
+ * @coder Moved from inline type for use outside this module.
+ */
+export interface DebugMessage {
+	type: 'debug';
+	debugPort?: NonNullable<IRemoteExtensionHostStartParams['port']>;
+}
+
+
+export type HandshakeMessage = AuthRequest | SignRequest | ConnectionTypeRequest | ErrorMessage | OKMessage | DebugMessage;
 
 
 interface ISimpleConnectionOptions {
@@ -225,20 +238,19 @@ function raceWithTimeoutCancellation<T>(promise: Promise<T>, timeoutCancellation
 async function connectToRemoteExtensionHostAgent(options: ISimpleConnectionOptions, connectionType: ConnectionType, args: any | undefined, timeoutCancellationToken: CancellationToken): Promise<{ protocol: PersistentProtocol; ownsProtocol: boolean; }> {
 	const logPrefix = connectLogPrefix(options, connectionType);
 
-	options.logService.trace(`${logPrefix} 1/6. invoking socketFactory.connect().`);
+	options.logService.info(`${logPrefix} 1/6. invoking socketFactory.connect().`);
 
 	let socket: ISocket;
+
 	try {
-		// NOTE@coder: Add connection type to the socket. This is so they can be
-		// distinguished by the backend.
-		socket = await createSocket(options.logService, options.socketFactory, options.host, options.port, `type=${connectionTypeToString(connectionType)}&reconnectionToken=${options.reconnectionToken}&reconnection=${options.reconnectionProtocol ? 'true' : 'false'}`, timeoutCancellationToken);
+		socket = await createSocket(options.logService, options.socketFactory, options.host, options.port, `reconnectionToken=${options.reconnectionToken}&reconnection=${options.reconnectionProtocol ? 'true' : 'false'}`, timeoutCancellationToken);
 	} catch (error) {
 		options.logService.error(`${logPrefix} socketFactory.connect() failed or timed out. Error:`);
 		options.logService.error(error);
 		throw error;
 	}
 
-	options.logService.trace(`${logPrefix} 2/6. socketFactory.connect() was successful.`);
+	options.logService.info(`${logPrefix} 2/6. socketFactory.connect() was successful.`);
 
 	let protocol: PersistentProtocol;
 	let ownsProtocol: boolean;
@@ -251,7 +263,7 @@ async function connectToRemoteExtensionHostAgent(options: ISimpleConnectionOptio
 		ownsProtocol = true;
 	}
 
-	options.logService.trace(`${logPrefix} 3/6. sending AuthRequest control message.`);
+	options.logService.info(`${logPrefix} 3/6. sending AuthRequest control message.`);
 	const authRequest: AuthRequest = {
 		type: 'auth',
 		auth: options.connectionToken || '00000000000000000000'
@@ -267,7 +279,7 @@ async function connectToRemoteExtensionHostAgent(options: ISimpleConnectionOptio
 			throw error;
 		}
 
-		options.logService.trace(`${logPrefix} 4/6. received SignRequest control message.`);
+		options.logService.info(`${logPrefix} 4/6. received SignRequest control message.`);
 
 		const signed = await raceWithTimeoutCancellation(options.signService.sign(msg.data), timeoutCancellationToken);
 		const connTypeRequest: ConnectionTypeRequest = {
@@ -280,7 +292,7 @@ async function connectToRemoteExtensionHostAgent(options: ISimpleConnectionOptio
 			connTypeRequest.args = args;
 		}
 
-		options.logService.trace(`${logPrefix} 5/6. sending ConnectionTypeRequest control message.`);
+		options.logService.info(`${logPrefix} 5/6. sending ConnectionTypeRequest control message.`);
 		protocol.sendControl(VSBuffer.fromString(JSON.stringify(connTypeRequest)));
 
 		return { protocol, ownsProtocol };
@@ -324,7 +336,7 @@ async function connectToRemoteExtensionHostAgentAndReadOneMessage<T>(options: IS
 			if (options.reconnectionProtocol) {
 				options.reconnectionProtocol.endAcceptReconnection();
 			}
-			options.logService.trace(`${logPrefix} 6/6. handshake finished, connection is up and running after ${logElapsed(startTime)}!`);
+			options.logService.info(`${logPrefix} 6/6. handshake finished, connection is up and running after ${logElapsed(startTime)}!`);
 			result.resolve({ protocol, firstMessage: msg });
 		}
 	}));
@@ -350,7 +362,9 @@ interface IExtensionHostConnectionResult {
 }
 
 async function doConnectRemoteAgentExtensionHost(options: ISimpleConnectionOptions, startArguments: IRemoteExtensionHostStartParams, timeoutCancellationToken: CancellationToken): Promise<IExtensionHostConnectionResult> {
-	const { protocol, firstMessage } = await connectToRemoteExtensionHostAgentAndReadOneMessage<{ debugPort?: number; }>(options, ConnectionType.ExtensionHost, startArguments, timeoutCancellationToken);
+	console.log('>>> READING ONE MESSAGE', options, startArguments);
+	const { protocol, firstMessage } = await connectToRemoteExtensionHostAgentAndReadOneMessage<DebugMessage>(options, ConnectionType.ExtensionHost, startArguments, timeoutCancellationToken);
+	console.log('>>> READ ONE MESSAGE', JSON.stringify(firstMessage));
 	const debugPort = firstMessage && firstMessage.debugPort;
 	return { protocol, debugPort };
 }
@@ -363,7 +377,7 @@ async function doConnectRemoteAgentTunnel(options: ISimpleConnectionOptions, sta
 	const startTime = Date.now();
 	const logPrefix = connectLogPrefix(options, ConnectionType.Tunnel);
 	const { protocol } = await connectToRemoteExtensionHostAgent(options, ConnectionType.Tunnel, startParams, timeoutCancellationToken);
-	options.logService.trace(`${logPrefix} 6/6. handshake finished, connection is up and running after ${logElapsed(startTime)}!`);
+	options.logService.info(`${logPrefix} 6/6. handshake finished, connection is up and running after ${logElapsed(startTime)}!`);
 	return protocol;
 }
 
@@ -612,19 +626,19 @@ abstract class PersistentConnection extends Disposable {
 				}
 				if (RemoteAuthorityResolverError.isTemporarilyNotAvailable(err)) {
 					this._options.logService.info(`${logPrefix} A temporarily not available error occurred while trying to reconnect, will try again...`);
-					this._options.logService.trace(err);
+					this._options.logService.info(err);
 					// try again!
 					continue;
 				}
 				if ((err.code === 'ETIMEDOUT' || err.code === 'ENETUNREACH' || err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET') && err.syscall === 'connect') {
 					this._options.logService.info(`${logPrefix} A network error occurred while trying to reconnect, will try again...`);
-					this._options.logService.trace(err);
+					this._options.logService.info(err);
 					// try again!
 					continue;
 				}
 				if (isPromiseCanceledError(err)) {
 					this._options.logService.info(`${logPrefix} A promise cancelation error occurred while trying to reconnect, will try again...`);
-					this._options.logService.trace(err);
+					this._options.logService.info(err);
 					// try again!
 					continue;
 				}

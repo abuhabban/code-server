@@ -42,7 +42,7 @@ router.get("/", async (req, res) => {
   options.productConfiguration.codeServerVersion = version
 
   res.send(
-    replaceTemplates<ipc.Options>(
+    replaceTemplates<ipc.CodeServerConfiguration>(
       req,
       // Uncomment prod blocks if not in development. TODO: Would this be
       // better as a build step? Or maintain two HTML files again?

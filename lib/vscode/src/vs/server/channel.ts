@@ -1,4 +1,8 @@
-import { field, logger } from '@coder/logger';
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Coder Technologies. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 import * as os from 'os';
 import * as path from 'path';
 import { VSBuffer } from 'vs/base/common/buffer';
@@ -16,13 +20,12 @@ import { INativeEnvironmentService } from 'vs/platform/environment/common/enviro
 import { ExtensionIdentifier, IExtensionDescription } from 'vs/platform/extensions/common/extensions';
 import { FileDeleteOptions, FileOpenOptions, FileOverwriteOptions, FileReadStreamOptions, FileType, FileWriteOptions, IStat, IWatchOptions } from 'vs/platform/files/common/files';
 import { DiskFileSystemProvider } from 'vs/platform/files/node/diskFileSystemProvider';
-import { ILogService } from 'vs/platform/log/common/log';
+import { ConsoleLogger, ILogService } from 'vs/platform/log/common/log';
 import product from 'vs/platform/product/common/product';
 import { IRemoteAgentEnvironment, RemoteAgentConnectionContext } from 'vs/platform/remote/common/remoteAgentEnvironment';
 import { ITelemetryData, ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
 import { IShellLaunchConfig, ITerminalEnvironment } from 'vs/platform/terminal/common/terminal';
 import { getTranslations } from 'vs/server/nls';
-import { getUriTransformer } from 'vs/server/util';
 import { IFileChangeDto } from 'vs/workbench/api/common/extHost.protocol';
 import { IEnvironmentVariableCollection } from 'vs/workbench/contrib/terminal/common/environmentVariable';
 import { MergedEnvironmentVariableCollection } from 'vs/workbench/contrib/terminal/common/environmentVariableCollection';
@@ -32,6 +35,9 @@ import * as terminalEnvironment from 'vs/workbench/contrib/terminal/common/termi
 import { AbstractVariableResolverService } from 'vs/workbench/services/configurationResolver/common/variableResolver';
 import { ExtensionScanner, ExtensionScannerInput } from 'vs/workbench/services/extensions/node/extensionPoints';
 import { PtyHostService } from 'vs/platform/terminal/node/ptyHostService';
+import { createServerURITransformer } from 'vs/base/common/uriServer';
+
+const logger = new ConsoleLogger();
 
 /**
  * Extend the file provider to allow unwatching.
@@ -80,7 +86,7 @@ export class FileProviderChannel implements IServerChannel<RemoteAgentConnection
 			onFirstListenerAdd: () => {
 				const provider = new Watcher(this.logService);
 				this.watchers.set(session, provider);
-				const transformer = getUriTransformer(context.remoteAuthority);
+				const transformer = createServerURITransformer(context.remoteAuthority);
 				provider.onDidChangeFile((events) => {
 					emitter.fire(events.map((event) => ({
 						...event,
@@ -201,7 +207,7 @@ export class FileProviderChannel implements IServerChannel<RemoteAgentConnection
 		// Used for walkthrough content.
 		if (/^\/static[^/]*\//.test(resource.path)) {
 			return URI.file(this.environmentService.appRoot + resource.path.replace(/^\/static[^/]*\//, '/'));
-		// Used by the webview service worker to load resources.
+			// Used by the webview service worker to load resources.
 		} else if (resource.path === '/vscode-resource' && resource.query) {
 			try {
 				const query = JSON.parse(resource.query);
@@ -221,7 +227,7 @@ export class ExtensionEnvironmentChannel implements IServerChannel {
 		private readonly log: ILogService,
 		private readonly telemetry: ITelemetryService,
 		private readonly connectionToken: string,
-	) {}
+	) { }
 
 	public listen(_: unknown, event: string): Event<any> {
 		throw new Error(`Invalid listen '${event}'`);
@@ -232,12 +238,12 @@ export class ExtensionEnvironmentChannel implements IServerChannel {
 			case 'getEnvironmentData':
 				return transformOutgoingURIs(
 					await this.getEnvironmentData(),
-					getUriTransformer(context.remoteAuthority),
+					createServerURITransformer(context.remoteAuthority),
 				);
 			case 'scanExtensions':
 				return transformOutgoingURIs(
 					await this.scanExtensions(args.language),
-					getUriTransformer(context.remoteAuthority),
+					createServerURITransformer(context.remoteAuthority),
 				);
 			case 'getDiagnosticInfo': return this.getDiagnosticInfo();
 			case 'disableTelemetry': return this.disableTelemetry();
@@ -385,13 +391,13 @@ class VariableResolverService extends AbstractVariableResolverService {
 }
 
 export class TerminalProviderChannel implements IServerChannel<RemoteAgentConnectionContext>, IDisposable {
-	public constructor (
+	public constructor(
 		private readonly logService: ILogService,
 		private readonly ptyService: PtyHostService,
-	) {}
+	) { }
 
 	public listen(_: RemoteAgentConnectionContext, event: string, args: any): Event<any> {
-		logger.trace('TerminalProviderChannel:listen', field('event', event), field('args', args));
+		logger.trace('TerminalProviderChannel:listen', event, args);
 
 		switch (event) {
 			case '$onPtyHostExitEvent': return this.ptyService.onPtyHostExit || Event.None;
@@ -403,17 +409,17 @@ export class TerminalProviderChannel implements IServerChannel<RemoteAgentConnec
 			case '$onProcessExitEvent': return this.ptyService.onProcessExit;
 			case '$onProcessReadyEvent': return this.ptyService.onProcessReady;
 			case '$onProcessReplayEvent': return this.ptyService.onProcessReplay;
-			case '$onProcessTitleChangedEvent':  return this.ptyService.onProcessTitleChanged;
+			case '$onProcessTitleChangedEvent': return this.ptyService.onProcessTitleChanged;
 			case '$onProcessShellTypeChangedEvent': return this.ptyService.onProcessShellTypeChanged;
 			case '$onProcessOverrideDimensionsEvent': return this.ptyService.onProcessOverrideDimensions;
 			case '$onProcessResolvedShellLaunchConfigEvent': return this.ptyService.onProcessResolvedShellLaunchConfig;
 			case '$onProcessOrphanQuestion': return this.ptyService.onProcessOrphanQuestion;
-				// NOTE@asher: I think this must have something to do with running
-				// commands on the terminal that will do things in VS Code but we
-				// already have that functionality via a socket so I'm not sure what
-				// this is for.
-				// NOTE: VSCODE_IPC_HOOK_CLI is now missing, perhaps this is meant to
-				// replace that in some way.
+			// NOTE@asher: I think this must have something to do with running
+			// commands on the terminal that will do things in VS Code but we
+			// already have that functionality via a socket so I'm not sure what
+			// this is for.
+			// NOTE: VSCODE_IPC_HOOK_CLI is now missing, perhaps this is meant to
+			// replace that in some way.
 			case '$onExecuteCommand': return Event.None;
 		}
 
@@ -421,7 +427,7 @@ export class TerminalProviderChannel implements IServerChannel<RemoteAgentConnec
 	}
 
 	public call(context: RemoteAgentConnectionContext, command: string, args: any): Promise<any> {
-		logger.trace('TerminalProviderChannel:call', field('command', command), field('args', args));
+		logger.trace('TerminalProviderChannel:call', command, args);
 
 		switch (command) {
 			case '$restartPtyHost': return this.ptyService.restartPtyHost();
@@ -553,6 +559,6 @@ export class TerminalProviderChannel implements IServerChannel<RemoteAgentConnec
 }
 
 function transformIncoming(remoteAuthority: string, uri: UriComponents | undefined): URI | undefined {
-	const transformer = getUriTransformer(remoteAuthority);
+	const transformer = createServerURITransformer(remoteAuthority);
 	return uri ? URI.revive(transformer.transformIncoming(uri)) : uri;
 }

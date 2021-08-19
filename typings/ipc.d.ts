@@ -5,7 +5,7 @@
  * - lib/vscode/src/typings/ipc.d.ts
  * The second is a symlink to the first.
  */
-export interface Options {
+export interface CodeServerConfiguration {
   authed: boolean
   base: string
   csStaticBase: string

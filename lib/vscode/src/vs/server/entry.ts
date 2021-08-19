@@ -1,83 +1,96 @@
-import { field } from '@coder/logger';
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Coder Technologies. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 import { setUnexpectedErrorHandler } from 'vs/base/common/errors';
 import * as proxyAgent from 'vs/base/node/proxy_agent';
-import { CodeServerMessage, VscodeMessage } from 'vs/base/common/ipc';
-import { logger } from 'vs/server/logger';
 import { enableCustomMarketplace } from 'vs/server/marketplace';
-import { Vscode } from 'vs/server/server';
+import { CodeServerMain, VscodeServerArgs as ServerArgs } from 'vs/server/server';
+import { createServer, IncomingHttpHeaders, IncomingMessage } from 'http';
+import * as net from 'net';
+
+// eslint-disable-next-line code-import-patterns
+import { requestHandler as defaultRequestHandler } from '../../../resources/web/code-web';
+import { createHash } from 'crypto';
+import { ConnectionOptions, parseQueryConnectionOptions } from 'vs/server/connection/abstractConnection';
+
+const logger = console;
 
 setUnexpectedErrorHandler((error) => {
-	logger.warn('Uncaught error', field('error', error instanceof Error ? error.message : error));
+	logger.warn('Uncaught error', error instanceof Error ? error.message : error);
 });
+
 enableCustomMarketplace();
 proxyAgent.monkeyPatch(true);
 
-/**
- * Ensure we control when the process exits.
- */
-const exit = process.exit;
-process.exit = function(code?: number) {
-	logger.warn(`process.exit() was prevented: ${code || 'unknown code'}.`);
-} as (code?: number) => never;
+type UpgradeHandler = (request: IncomingMessage, socket: net.Socket, upgradeHead: Buffer) => void;
 
-// Kill VS Code if the parent process dies.
-if (typeof process.env.CODE_SERVER_PARENT_PID !== 'undefined') {
-	const parentPid = parseInt(process.env.CODE_SERVER_PARENT_PID, 10);
-	setInterval(() => {
-		try {
-			process.kill(parentPid, 0); // Throws an exception if the process doesn't exist anymore.
-		} catch (e) {
-			exit();
+export async function main(args: ServerArgs) {
+	const serverUrl = new URL(`http://${args.server}`);
+
+	const codeServer = new CodeServerMain();
+	const workbenchConstructionOptions = await codeServer.createWorkbenchConstructionOptions(serverUrl);
+
+	const httpServer = createServer((req, res) => defaultRequestHandler(req, res, workbenchConstructionOptions));
+
+	const upgrade: UpgradeHandler = (req, socket) => {
+		if (req.headers['upgrade'] !== 'websocket' || !req.url) {
+			logger.error(`failed to upgrade for header "${req.headers['upgrade']}" and url: "${req.url}".`);
+			socket.end('HTTP/1.1 400 Bad Request');
+			return;
 		}
-	}, 5000);
-} else {
-	logger.error('no parent process');
-	exit(1);
+
+		const upgradeUrl = new URL(req.url, serverUrl.toString());
+		logger.log('Upgrade from', upgradeUrl.toString());
+
+		let connectionOptions: ConnectionOptions;
+
+		try {
+			connectionOptions = parseQueryConnectionOptions(upgradeUrl.searchParams);
+		} catch (error: unknown) {
+			logger.error(error);
+			socket.end('HTTP/1.1 400 Bad Request');
+			return;
+		}
+
+		socket.on('error', e => {
+			logger.error(`[${connectionOptions.reconnectionToken}] Socket failed for "${req.url}".`, e);
+		});
+
+
+		const { responseHeaders, permessageDeflate } = createReponseHeaders(req.headers);
+		socket.write(responseHeaders);
+
+		codeServer.handleWebSocket(socket, connectionOptions, permessageDeflate);
+	};
+
+	httpServer.on('upgrade', upgrade);
+
+	return new Promise((resolve, reject) => {
+		httpServer.listen(parseInt(serverUrl.port, 10), serverUrl.hostname, () => {
+			logger.info('Code Server active listening at:', serverUrl.toString());
+		});
+	});
 }
 
-const vscode = new Vscode();
-const send = (message: VscodeMessage): void => {
-	if (!process.send) {
-		throw new Error('not spawned with IPC');
-	}
-	process.send(message);
-};
+function createReponseHeaders(incomingHeaders: IncomingHttpHeaders) {
+	const acceptKey = incomingHeaders['sec-websocket-key'];
+	// WebSocket standard hash suffix.
+	const hash = createHash('sha1').update(acceptKey + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
 
-// Wait for the init message then start up VS Code. Subsequent messages will
-// return new workbench options without starting a new instance.
-process.on('message', async (message: CodeServerMessage, socket) => {
-	logger.debug('got message from code-server', field('type', message.type));
-	logger.trace('code-server message content', field('message', message));
-	switch (message.type) {
-		case 'init':
-			try {
-				const options = await vscode.initialize(message.options);
-				send({ type: 'options', id: message.id, options });
-			} catch (error) {
-				logger.error(error.message);
-				logger.error(error.stack);
-				exit(1);
-			}
-			break;
-		case 'cli':
-			try {
-				await vscode.cli(message.args);
-				exit(0);
-			} catch (error) {
-				logger.error(error.message);
-				logger.error(error.stack);
-				exit(1);
-			}
-			break;
-		case 'socket':
-			vscode.handleWebSocket(socket, message.query, message.permessageDeflate);
-			break;
+	const responseHeaders = ['HTTP/1.1 101 Web Socket Protocol Handshake', 'Upgrade: WebSocket', 'Connection: Upgrade', `Sec-WebSocket-Accept: ${hash}`];
+
+	let permessageDeflate = false;
+
+	if (String(incomingHeaders['sec-websocket-extensions']).indexOf('permessage-deflate') !== -1) {
+		permessageDeflate = true;
+		responseHeaders.push('Sec-WebSocket-Extensions: permessage-deflate; server_max_window_bits=15');
 	}
-});
-if (!process.send) {
-	logger.error('not spawned with IPC');
-	exit(1);
-} else {
-	// This lets the parent know the child is ready to receive messages.
-	send({ type: 'ready' });
+
+	return {
+		responseHeaders: responseHeaders.join('\r\n') + '\r\n\r\n',
+		permessageDeflate
+	};
 }
+

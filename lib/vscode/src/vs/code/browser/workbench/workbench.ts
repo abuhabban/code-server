@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { IWorkbenchConstructionOptions, create, ICredentialsProvider, IURLCallbackProvider, IWorkspaceProvider, IWorkspace, IWindowIndicator, IProductQualityChangeHandler, ISettingsSyncOptions } from 'vs/workbench/workbench.web.api';
+import { create, ICredentialsProvider, IURLCallbackProvider, IWorkspaceProvider, IWorkspace, IWindowIndicator, IProductQualityChangeHandler, ISettingsSyncOptions, IServerWorkbenchConstructionOptions } from 'vs/workbench/workbench.web.api';
 import { URI, UriComponents } from 'vs/base/common/uri';
 import { Event, Emitter } from 'vs/base/common/event';
 import { generateUuid } from 'vs/base/common/uuid';
@@ -41,7 +41,7 @@ function doCreateUri(path: string, queryValues: Map<string, string>): URI {
  * Encode a path for opening via the folder or workspace query parameter. This
  * preserves slashes so it can be edited by hand more easily.
  */
- export const encodePath = (path: string): string => {
+export const encodePath = (path: string): string => {
 	return path.split('/').map((p) => encodeURIComponent(p)).join('/');
 };
 
@@ -424,10 +424,11 @@ class WindowIndicator implements IWindowIndicator {
 		throw new Error('Missing web configuration element');
 	}
 
-	const config: IWorkbenchConstructionOptions & { folderUri?: UriComponents, workspaceUri?: UriComponents } = {
-		webviewEndpoint: `${window.location.origin}${window.location.pathname.replace(/\/+$/, '')}/webview`,
-		...JSON.parse(configElementAttribute),
-	};
+	const config: IServerWorkbenchConstructionOptions = JSON.parse(configElementAttribute);
+	// const config: IWorkbenchConstructionOptions & { folderUri?: UriComponents, workspaceUri?: UriComponents } = {
+	// 	webviewEndpoint: `${window.location.origin}${window.location.pathname.replace(/\/+$/, '')}/webview`,
+	// 	...JSON.parse(configElementAttribute),
+	// };
 
 	// Strip the protocol from the authority if it exists.
 	const normalizeAuthority = (authority: string): string => authority.replace(/^https?:\/\//, '');

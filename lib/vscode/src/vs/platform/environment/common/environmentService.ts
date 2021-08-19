@@ -170,7 +170,7 @@ export abstract class AbstractNativeEnvironmentService implements INativeEnviron
 	get extraBuiltinExtensionPaths(): string[] {
 		return (this._args['extra-builtin-extensions-dir'] || []).map((p) => resolve(p));
 	}
- 
+
 	@memoize
 	get extensionDevelopmentLocationURI(): URI[] | undefined {
 		const extensionDevelopmentPaths = this.args.extensionDevelopmentPath;

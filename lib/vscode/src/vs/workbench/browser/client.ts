@@ -1,5 +1,10 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Coder Technologies. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 import * as path from 'vs/base/common/path';
-import { Options } from 'vs/base/common/ipc';
+import { CodeServerConfiguration } from 'vs/base/common/ipc';
 import { localize } from 'vs/nls';
 import { MenuId, MenuRegistry } from 'vs/platform/actions/common/actions';
 import { CommandsRegistry } from 'vs/platform/commands/common/commands';
@@ -17,7 +22,7 @@ import 'vs/workbench/services/localizations/browser/localizationsService';
  * possible.
  */
 
-const options = getOptions<Options>();
+const options = getOptions<CodeServerConfiguration>();
 
 /**
  * This is called by vs/workbench/browser/web.main.ts after the workbench has
@@ -44,7 +49,7 @@ export const initialize = async (services: ServiceCollection): Promise<void> => 
 
 			if (parentEvent.data.bind && parentEvent.data.prop) {
 				const listener = (event: Event) => {
-					parent.postMessage({
+					parent?.postMessage({
 						event: parentEvent.data.event,
 						[parentEvent.data.prop]: event[parentEvent.data.prop as keyof Event]
 					}, window.location.origin);
@@ -99,7 +104,7 @@ export const initialize = async (services: ServiceCollection): Promise<void> => 
 		const lastNoti = storageService.getNumber('csLastUpdateNotification', StorageScope.GLOBAL);
 		if (lastNoti) {
 			// Only remind them again after 1 week.
-			const timeout = 1000*60*60*24*7;
+			const timeout = 1000 * 60 * 60 * 24 * 7;
 			const threshold = lastNoti + timeout;
 			if (Date.now() < threshold) {
 				return;
@@ -118,13 +123,14 @@ export const initialize = async (services: ServiceCollection): Promise<void> => 
 			logService.debug(`failed to check for update: ${error}`);
 		}).finally(() => {
 			// Check again every 6 hours.
-			setTimeout(updateLoop, 1000*60*60*6);
+			setTimeout(updateLoop, 1000 * 60 * 60 * 6);
 		});
 	};
 
-	if (!options.disableUpdateCheck) {
-		updateLoop();
-	}
+	// TODO@coder enable
+	// if (!options.disableUpdateCheck) {
+	// 	updateLoop();
+	// }
 
 	// This will be used to set the background color while VS Code loads.
 	const theme = storageService.get('colorThemeData', StorageScope.GLOBAL);

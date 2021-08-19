@@ -17,8 +17,9 @@ import { IInitData } from 'vs/workbench/api/common/extHost.protocol';
 import { MessageType, createMessageOfType, isMessageOfType, IExtHostSocketMessage, IExtHostReadyMessage, IExtHostReduceGraceTimeMessage, ExtensionHostExitCode } from 'vs/workbench/services/extensions/common/extensionHostProtocol';
 import { ExtensionHostMain, IExitFn } from 'vs/workbench/services/extensions/common/extensionHostMain';
 import { VSBuffer } from 'vs/base/common/buffer';
-import { IURITransformer, URITransformer, IRawURITransformer } from 'vs/base/common/uriIpc';
 import { exists } from 'vs/base/node/pfs';
+import { IRawURITransformer, IURITransformer, URITransformer } from 'vs/base/common/uriIpc';
+import { createServerURITransformer } from 'vs/base/common/uriServer';
 import { realpath } from 'vs/base/node/extpath';
 import { IHostUtils } from 'vs/workbench/api/common/extHostExtensionService';
 import { RunOnceScheduler } from 'vs/base/common/async';
@@ -118,6 +119,7 @@ function _createExtHostProtocol(): Promise<PersistentProtocol> {
 				if (msg && msg.type === 'VSCODE_EXTHOST_IPC_SOCKET') {
 					const initialDataChunk = VSBuffer.wrap(Buffer.from(msg.initialDataChunk, 'base64'));
 					let socket: NodeSocket | WebSocketNodeSocket;
+
 					if (msg.skipWebSocketFrames) {
 						socket = new NodeSocket(handle);
 					} else {
@@ -138,11 +140,8 @@ function _createExtHostProtocol(): Promise<PersistentProtocol> {
 
 						// Wait for rich client to reconnect
 						protocol.onSocketClose(() => {
-							// NOTE@coder: Inform the server so we can manage offline
-							// connections there instead. Our goal is to persist connections
-							// forever (to a reasonable point) to account for things like
-							// hibernating overnight.
-							process.send!({ type: 'VSCODE_EXTHOST_DISCONNECTED' });
+							// The socket has closed, let's give the renderer a certain amount of time to reconnect
+							disconnectRunner1.schedule();
 						});
 					}
 				}
@@ -339,13 +338,18 @@ export async function startExtensionHostProcess(): Promise<void> {
 
 	// Attempt to load uri transformer
 	let uriTransformer: IURITransformer | null = null;
-	if (initData.remote.authority && args.uriTransformerPath) {
-		try {
-			const rawURITransformerFactory = <any>require.__$__nodeRequire(args.uriTransformerPath);
-			const rawURITransformer = <IRawURITransformer>rawURITransformerFactory(initData.remote.authority);
-			uriTransformer = new URITransformer(rawURITransformer);
-		} catch (e) {
-			console.error(e);
+
+	if (initData.remote.authority) {
+		if (args.uriTransformerPath) {
+			try {
+				const rawURITransformerFactory = <any>require.__$__nodeRequire(args.uriTransformerPath);
+				const rawURITransformer = <IRawURITransformer>rawURITransformerFactory(initData.remote.authority);
+				uriTransformer = new URITransformer(rawURITransformer);
+			} catch (e) {
+				console.error(e);
+			}
+		} else {
+			uriTransformer = createServerURITransformer(initData.remote.authority);
 		}
 	}
 

@@ -419,7 +419,7 @@ export class ExtensionsScanner extends Disposable {
 		});
 	}
 
-	private async scanExtensionsInDirs(dirs: string[], type: ExtensionType): Promise<ILocalExtension[]>{
+	private async scanExtensionsInDirs(dirs: string[], type: ExtensionType): Promise<ILocalExtension[]> {
 		const results = await Promise.all(dirs.map((path) => this.scanExtensionsInDir(path, type)));
 		return results.reduce((flat, current) => flat.concat(current), []);
 	}

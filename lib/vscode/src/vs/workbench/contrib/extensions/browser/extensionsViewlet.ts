@@ -539,28 +539,27 @@ export class ExtensionsViewPaneContainer extends ViewPaneContainer implements IE
 
 			const helperText = append(helperHeader, $('div'));
 
+
 			// We call this function because it gives us access to the current theme
 			// Then we can apply the link color to the links in the helper header
 			registerThemingParticipant((theme) => {
 				const linkColor = theme.getColor(textLinkForeground);
-				helperText.innerHTML = `
-				<div style="margin-bottom: 8px;">
-				<p style="margin-bottom: 0; display: flex; align-items: center"><span class="codicon codicon-warning" style="margin-right: 2px; color: #C4A103"></span>WARNING</p>
-				<p style="margin-top: 0; margin-bottom: 4px">
-				These extensions are not official. Find additional open-source extensions
-				<a style="color: ${linkColor}" href="https://open-vsx.org/" target="_blank">here</a>.
-				See <a style="color: ${linkColor}" href="https://github.com/cdr/code-server/blob/master/docs/FAQ.md#differences-compared-to-vs-code" target="_blank">docs</a>.
-				</p>
-				</div>
-						`;
+
+				append(helperText, $('div', { style: 'margin-bottom: 8px;' },
+					$('p', { style: 'margin-bottom: 0; display: flex; align-items: center' },
+						$('span', { class: 'codicon codicon-warning', style: 'margin-right: 2px; color: #C4A103' }),
+						'WARNING'),
+					$('p', { style: 'margin-top: 0; margin-bottom: 4px' },
+						'These extensions are not official. Find additional open-source extensions ',
+						$('a', { style: `color: ${linkColor}`, href: 'https://open-vsx.org/', target: '_blank' }, 'here'),
+						'. See ',
+						$('a', { style: `color: ${linkColor}`, href: 'https://github.com/cdr/code-server/blob/master/docs/FAQ.md#differences-compared-to-vs-code', target: '_blank' }, 'docs'),
+						'.'
+					)));
 			});
 
-			const dismiss = append(helperHeader, $('span'));
-			dismiss.innerHTML = 'Dismiss';
-			dismiss.style.display = 'block';
-			dismiss.style.textAlign = 'right';
-			dismiss.style.cursor = 'pointer';
-			dismiss.tabIndex = 0;
+			const dismiss = append(helperHeader, $('span', { style: `display: 'block'; textAlign: 'right'; cursor: 'pointer';`, tabindex: '0' }, 'Dismiss'));
+
 			dismiss.onclick = () => {
 				helperHeader.remove();
 				localStorage.setItem(extensionHelperLocalStorageKey, 'viewed');

@@ -1,3 +1,8 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Coder Technologies. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
 import * as fs from 'fs';
 import * as path from 'path';
 import * as util from 'util';
@@ -21,7 +26,7 @@ const DefaultConfiguration = {
 export const getNlsConfiguration = async (locale: string, userDataPath: string): Promise<lp.NLSConfiguration> => {
 	const id = `${locale}: ${userDataPath}`;
 	if (!configurations.has(id)) {
-		configurations.set(id, new Promise(async (resolve) =>  {
+		configurations.set(id, new Promise(async (resolve) => {
 			const config = product.commit && await util.promisify(fs.exists)(metadataPath)
 				? await lp.getNLSConfiguration(product.commit, userDataPath, metadataPath, locale)
 				: DefaultConfiguration;
@@ -45,7 +50,7 @@ export const getTranslations = async (locale: string, userDataPath: string): Pro
 	if (isInternalConfiguration(config)) {
 		try {
 			return JSON.parse(await util.promisify(fs.readFile)(config._translationsConfigFile, 'utf8'));
-		} catch (error) { /* Nothing yet. */}
+		} catch (error) { /* Nothing yet. */ }
 	}
 	return {};
 };
